@@ -1,47 +1,32 @@
-export interface Constructor<T = any> {
+import 'reflect-metadata';
+import { isInjectable } from './injectable';
+
+interface Constructor<T = any> {
     new (...args: any[]): T;
 }
 
-type Registrations<T> = {
-    deps: Constructor<T>[];
-};
-
 export class DIContainer {
-    private registrations = new Map<Constructor, Registrations<any>>();
-    private instances = new Map<Constructor, any>();
-    private resolving = new Set<Constructor>();
-
-    register<T>(target: Constructor<T>, deps: Constructor[] = []) {
-        this.registrations.set(target, { deps });
-    }
+    private singletons = new Map<Constructor, any>();
 
     resolve<T>(target: Constructor<T>): T {
-        if (this.instances.has(target)) {
-            return this.instances.get(target);
+        if (!isInjectable(target)) {
+            throw new Error(`${target.name} is not injectable`);
         }
 
-        if (this.resolving.has(target)) {
-            throw new Error(`Circular dependency detected: ${target.name}`);
+        if (this.singletons.has(target)) {
+            return this.singletons.get(target);
         }
 
-        const registration = this.registrations.get(target);
+        const paramTypes: Constructor[] = Reflect.getMetadata('design:paramtypes', target) || [];
 
-        if (!registration) {
-            throw new Error(`No registration found for: ${target.name}`);
-        }
+        const dependencies = paramTypes.map((dep) => {
+            return this.resolve(dep);
+        });
 
-        this.resolving.add(target);
+        const instance = new target(...dependencies);
 
-        try {
-            const depsInstances = registration.deps.map((dep) => this.resolve(dep));
+        this.singletons.set(target, instance);
 
-            const instance = new target(...depsInstances);
-
-            this.instances.set(target, instance);
-
-            return instance;
-        } finally {
-            this.resolving.delete(target);
-        }
+        return instance;
     }
 }
